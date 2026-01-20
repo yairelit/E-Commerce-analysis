@@ -1,3 +1,11 @@
+/*
+Monthly Revenue Growth Analysis
+-------------------------------
+This query calculates the month-over-month revenue growth rate for delivered orders.
+It aggregates total payments by month and utilizes the LAG window function to compare 
+current revenue against the previous month's performance, starting from February 2017.
+*/
+
 WITH MonthlyRevenue AS (
     SELECT 
         -- Truncate the timestamp to the beginning of the month (e.g., 2017-05-15 becomes 2017-05-01).
