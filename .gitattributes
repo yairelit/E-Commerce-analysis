@@ -1,0 +1,2 @@
+# .gitattributes
+*.h linguist-language=SQL
