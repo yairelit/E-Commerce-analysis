@@ -14,6 +14,8 @@ The database schema consists of multiple related tables: Customers, Orders, Orde
 
 🔗 **Link to Dataset:** [Olist Brazilian E-Commerce Dataset on Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
 
+
+
 ### 🗂️ Data Schema & Table Descriptions
 
 The dataset consists of 9 distinct tables, related as follows:
