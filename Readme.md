@@ -14,6 +14,23 @@ The database schema consists of multiple related tables: Customers, Orders, Orde
 
 🔗 **Link to Dataset:** [Olist Brazilian E-Commerce Dataset on Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
 
+### 🗂️ Data Schema & Table Descriptions
+
+The dataset consists of 9 distinct tables, related as follows:
+
+| Table Name | Description | Key Columns |
+| :--- | :--- | :--- |
+| **`olist_orders_dataset`** | The core table. Contains high-level information about each order, including status and timestamps. | `order_id`, `customer_id`, `order_status`, `order_purchase_timestamp` |
+| **`olist_customers_dataset`** | Contains customer information and their location. Links orders to unique customers. | `customer_id` (key to orders), `customer_unique_id`, `customer_zip_code_prefix` |
+| **`olist_order_items_dataset`** | Details of items purchased within each order. Links orders to products and sellers. | `order_id`, `product_id`, `seller_id`, `price`, `freight_value` |
+| **`olist_products_dataset`** | Product catalog including category names and dimensions. | `product_id`, `product_category_name`, `product_weight_g` |
+| **`olist_order_payments_dataset`** | Payment options chosen by customers (credit card, voucher, etc.) and installment details. | `order_id`, `payment_type`, `payment_installments`, `payment_value` |
+| **`olist_order_reviews_dataset`** | Customer reviews regarding the transaction. | `review_id`, `order_id`, `review_score`, `review_comment_message` |
+| **`olist_sellers_dataset`** | Information about the sellers who fulfilled the orders. | `seller_id`, `seller_zip_code_prefix`, `seller_city`, `seller_state` |
+| **`olist_geolocation_dataset`** | Geospatial data (latitude/longitude) for Brazilian zip codes. | `geolocation_zip_code_prefix`, `geolocation_lat`, `geolocation_lng` |
+| **`product_category_name_translation`** | Translations of product category names from Portuguese to English. | `product_category_name`, `product_category_name_english` |
+
+
 ---
 
 ## 🎯 Project Objectives
