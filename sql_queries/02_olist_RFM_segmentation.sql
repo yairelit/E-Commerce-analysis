@@ -72,3 +72,71 @@ WHERE
     r_score = 5 AND f_score >= 4 AND m_score = 5
 ORDER BY 
     monetary DESC;
+
+
+
+
+
+
+/* Logical Sanity Check & Fairness Validation
+   ------------------------------------------
+   Goal: Verify that our scoring method (CASE WHEN) reflects reality and does not distort it.
+   
+   The Problem with NTILE (Relative Scoring): 
+   NTILE forces data into equal buckets (e.g., exactly 20% of customers in each score).
+   In a dataset where 96% of customers only buy once, NTILE would arbitrarily assign 
+   a "Loyalty Score" of 5 to a one-time buyer just to fill the quota. 
+   This creates a false narrative for the business owner.
+   
+   The Solution (This Query): 
+   We use "Absolute Scoring." A high score is earned by hitting specific milestones.
+   This approach reveals the uncomfortable truth about customer retention (The Long Tail).
+*/
+
+WITH CustomerMetrics AS (
+    -- Step 1: Gather Ground Truth (Actual purchase counts per customer)
+    SELECT 
+        c.customer_unique_id,
+        COUNT(DISTINCT o.order_id) AS frequency
+    FROM 
+        olist_customers_dataset c
+    JOIN 
+        olist_orders_dataset o ON c.customer_id = o.customer_id
+    WHERE 
+        o.order_status = 'delivered'
+    GROUP BY 
+        c.customer_unique_id
+),
+FrequencyScores AS (
+    SELECT 
+        -- Step 2: Apply Hard Thresholds (Fair Business Logic)
+        -- Fairness means the score is based on performance, not relative position.
+        CASE 
+            WHEN frequency >= 5 THEN 5  -- Only true "Power Users" get a 5
+            WHEN frequency = 4 THEN 4
+            WHEN frequency = 3 THEN 3
+            WHEN frequency = 2 THEN 2   -- Returning customers
+            ELSE 1                      -- The vast majority will honestly fall here
+        END AS f_score
+    FROM CustomerMetrics
+)
+SELECT 
+    f_score, 
+    COUNT(*) as customer_count,
+    
+    -- Step 3: Calculate Distribution Percentage
+    -- We expect a skewed distribution ("Long Tail"). 
+    -- If 90%+ of customers are in Score 1, our logic is sound and realistic.
+    CAST(
+        CAST(
+            (COUNT(*) * 100.0 / (SELECT COUNT(*) FROM FrequencyScores)) 
+        AS DECIMAL(10, 2)) 
+    AS VARCHAR(20)) || '%'  
+    as percentage
+
+FROM 
+    FrequencyScores
+GROUP BY 
+    f_score
+ORDER BY 
+    f_score DESC;
