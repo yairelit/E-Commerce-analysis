@@ -1,21 +1,26 @@
-/*
-   RFM Segmentation Analysis
-   -------------------------
+/* 
    Goal: Segment customers based on Recency, Frequency, and Monetary value.
-   Method: 
-   1. Recency & Monetary: Relative scoring using NTILE (comparing customers to each other).
-   2. Frequency: Absolute scoring using CASE WHEN (to handle the "Long Tail" issue where most customers only buy once).
+   Workflow:
+   1. Calculate raw metrics and score customers.
+   2. Store results in a Temporary Table for performance.
+   3. Generate specific business reports from that table.
 */
 
+-------------------------------------------------------------------------
+-- STEP 1: Calculate Scores and Create Temp Table
+-------------------------------------------------------------------------
+-- Clean up: Drop the temp table if it exists from a previous run
+DROP TABLE IF EXISTS rfm_results;
+
+-- Create a temporary table to store the scored data.
+-- This avoids recalculating the heavy aggregations for every subsequent query.
+CREATE TEMP TABLE rfm_results AS
 WITH CustomerMetrics AS (
-    -- Step 1: Calculate raw metrics per unique customer
+    -- Sub-query: Aggregate data to get one row per customer
     SELECT 
         c.customer_unique_id,
-        -- Get the most recent order date
         MAX(o.order_purchase_timestamp) AS last_purchase_date,
-        -- Count unique orders (Frequency)
         COUNT(DISTINCT o.order_id) AS frequency,
-        -- Sum total spend (Monetary)
         SUM(p.payment_value) AS monetary
     FROM 
         olist_customers_dataset c
@@ -24,118 +29,74 @@ WITH CustomerMetrics AS (
     JOIN 
         olist_order_payments_dataset p ON o.order_id = p.order_id
     WHERE 
-        o.order_status = 'delivered' -- Filter for completed orders only
+        o.order_status = 'delivered' -- Focus on completed orders only
     GROUP BY 
         c.customer_unique_id
-),
-RFM_Scores AS (
-    -- Step 2: Assign scores (1 to 5)
-    SELECT 
-        customer_unique_id,
-        last_purchase_date,
-        frequency,
-        monetary,
-        
-        -- Recency Score: 5 = Most recent, 1 = Oldest
-        -- We use NTILE to split customers into 5 equal groups (20% each)
-        NTILE(5) OVER (ORDER BY last_purchase_date ASC) AS r_score, 
-        
-        -- Monetary Score: 5 = Highest spenders, 1 = Lowest spenders
-        -- We use NTILE to split customers into 5 equal groups
-        NTILE(5) OVER (ORDER BY monetary ASC) AS m_score,
-
-        -- Frequency Score: Custom Business Logic (Absolute Scoring)
-        -- Since most customers only buy once, NTILE would be inaccurate here.
-        -- We define hard thresholds for loyalty.
-        CASE 
-            WHEN frequency >= 5 THEN 5  -- Super Loyal
-            WHEN frequency = 4 THEN 4   -- Very Loyal
-            WHEN frequency = 3 THEN 3   -- Returning
-            WHEN frequency = 2 THEN 2   -- Repeat Buyer
-            ELSE 1                      -- One-time Buyer (The majority)
-        END AS f_score
-    FROM 
-        CustomerMetrics
 )
--- Step 3: Select final data and identify "Champions"
 SELECT 
     customer_unique_id,
-    r_score,
-    f_score,
-    m_score,
-    -- Create a segment identifier (e.g., "555") for easy filtering
+    last_purchase_date,
+    frequency,
+    monetary,
+    
+    -- Scoring Logic:
+    
+    -- 1. Recency: Relative Scoring (NTILE)
+    -- Divide customers into 5 equal groups based on how recently they bought.
+    -- 5 = Most recent, 1 = Least recent.
+    NTILE(5) OVER (ORDER BY last_purchase_date ASC) AS r_score, 
+    
+    -- 2. Monetary: Relative Scoring (NTILE)
+    -- Divide customers into 5 equal groups based on spend.
+    -- 5 = Highest spenders, 1 = Lowest spenders.
+    NTILE(5) OVER (ORDER BY monetary ASC) AS m_score,
+
+    -- 3. Frequency: Absolute Scoring (Business Rules)
+    -- Since most customers buy only once, NTILE would be misleading here.
+    -- We use hard thresholds to identify true loyalty.
+    CASE 
+        WHEN frequency >= 5 THEN 5  -- Super Loyal (The "Whales")
+        WHEN frequency = 4 THEN 4
+        WHEN frequency = 3 THEN 3
+        WHEN frequency = 2 THEN 2   -- Returning Customers
+        ELSE 1                      -- One-time buyers (The majority)
+    END AS f_score
+FROM 
+    CustomerMetrics;
+
+-------------------------------------------------------------------------
+-- STEP 2: Business Report - Identify "Champions"
+-------------------------------------------------------------------------
+-- Fetch the top-tier customers for marketing campaigns
+SELECT 
+    customer_unique_id,
+    r_score, f_score, m_score,
+    -- Create a readable segment ID (e.g., '555')
     CONCAT(r_score, f_score, m_score) as rfm_segment
 FROM 
-    RFM_Scores
+    rfm_results
 WHERE 
-    -- Optional: Filter to see only the best customers
     r_score = 5 AND f_score >= 4 AND m_score = 5
 ORDER BY 
     monetary DESC;
 
-
-
-
-
-
-/* Logical Sanity Check & Fairness Validation
-   ------------------------------------------
-   Goal: Verify that our scoring method (CASE WHEN) reflects reality and does not distort it.
-   
-   The Problem with NTILE (Relative Scoring): 
-   NTILE forces data into equal buckets (e.g., exactly 20% of customers in each score).
-   In a dataset where 96% of customers only buy once, NTILE would arbitrarily assign 
-   a "Loyalty Score" of 5 to a one-time buyer just to fill the quota. 
-   This creates a false narrative for the business owner.
-   
-   The Solution (This Query): 
-   We use "Absolute Scoring." A high score is earned by hitting specific milestones.
-   This approach reveals the uncomfortable truth about customer retention (The Long Tail).
-*/
-
-WITH CustomerMetrics AS (
-    -- Step 1: Gather Ground Truth (Actual purchase counts per customer)
-    SELECT 
-        c.customer_unique_id,
-        COUNT(DISTINCT o.order_id) AS frequency
-    FROM 
-        olist_customers_dataset c
-    JOIN 
-        olist_orders_dataset o ON c.customer_id = o.customer_id
-    WHERE 
-        o.order_status = 'delivered'
-    GROUP BY 
-        c.customer_unique_id
-),
-FrequencyScores AS (
-    SELECT 
-        -- Step 2: Apply Hard Thresholds (Fair Business Logic)
-        -- Fairness means the score is based on performance, not relative position.
-        CASE 
-            WHEN frequency >= 5 THEN 5  -- Only true "Power Users" get a 5
-            WHEN frequency = 4 THEN 4
-            WHEN frequency = 3 THEN 3
-            WHEN frequency = 2 THEN 2   -- Returning customers
-            ELSE 1                      -- The vast majority will honestly fall here
-        END AS f_score
-    FROM CustomerMetrics
-)
+-------------------------------------------------------------------------
+-- STEP 3: Quality Control - Distribution Check
+-------------------------------------------------------------------------
+-- Validate that the frequency logic isn't skewed. 
+-- We expect a "Long Tail" distribution (most users in score 1).
 SELECT 
     f_score, 
     COUNT(*) as customer_count,
-    
-    -- Step 3: Calculate Distribution Percentage
-    -- We expect a skewed distribution ("Long Tail"). 
-    -- If 90%+ of customers are in Score 1, our logic is sound and realistic.
-    CAST(
+    -- Calculate percentage share for each score
+    CONCAT(
         CAST(
-            (COUNT(*) * 100.0 / (SELECT COUNT(*) FROM FrequencyScores)) 
-        AS DECIMAL(10, 2)) 
-    AS VARCHAR(20)) || '%'  
-    as percentage
-
+            (COUNT(*) * 100.0 / (SELECT COUNT(*) FROM rfm_results)) 
+        AS DECIMAL(10, 2)),
+        '%'
+    ) as percentage
 FROM 
-    FrequencyScores
+    rfm_results 
 GROUP BY 
     f_score
 ORDER BY 
